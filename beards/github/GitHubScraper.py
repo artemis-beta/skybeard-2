@@ -37,12 +37,12 @@ class GitHubScraper:
       return out_dict
  
    def getBranches(self):
-       url = '{}/branches'.form(self.url)
+       url = '{}/branches/all'.format(self.url)
        webpage_content = requests.get(url).content.decode('utf-8')
        string = BeautifulSoup(webpage_content, 'html.parser')
-       s_ref = [i.get('class') for i in string.findall('span')]
-       s_ref = [i for i in s_ref if('branch-name css-trunc' in i)]
-       s_ref = [i.(split('-target@>')[1]).split('</')[0] for i in s_ref]
+       s_ref = string.find_all('div')
+       s_ref = [i.get('data-branch-name') for i in s_ref if i.get('data-branch-name')!= None]
+       print(s_ref)
        return s_ref
 
    def stringBranches(self):

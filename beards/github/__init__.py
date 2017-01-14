@@ -20,9 +20,9 @@ class GitHubInfo(BeardChatHandler):
     @onerror
     async def checkBranches(self, msg):
        Input = msg['text'].replace('/branches ','')
-       x = re.findall(r'([\w\d\-]', Input)
+       x = re.findall(r'([\w\d\-]+)', Input)
        user, repo = x
-       gitHubReq =  GitHubScraper.GitHubScraper(user, repo, branch)
+       gitHubReq =  GitHubScraper.GitHubScraper(user, repo)
        await self.sender.sendMessage(gitHubReq.stringBranches())
   
     async def checkCommits(self, msg):
