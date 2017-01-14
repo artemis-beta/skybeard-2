@@ -14,9 +14,17 @@ class GitHubInfo(BeardChatHandler):
 
     __commands__ = [
         ("commits", "checkCommits", "Displays commits for a given repository.\nBranch can be specified, default is 'master'"),
+        ("branches", "checkBranches", "Displays branches for a given repository."),
     ]
 
     @onerror
+    async def checkBranches(self, msg):
+       Input = msg['text'].replace('/branches ','')
+       x = re.findall(r'([\w\d\-]', Input)
+       user, repo = x
+       gitHubReq =  GitHubScraper.GitHubScraper(user, repo, branch)
+       await self.sender.sendMessage(gitHubReq.stringBranches())
+  
     async def checkCommits(self, msg):
         Input = msg['text'].replace('/commits ', '')
         x = re.findall(r'([\w\d\-]+)', Input)

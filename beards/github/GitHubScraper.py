@@ -15,10 +15,10 @@ class GitHubScraper:
       self.url = 'https://github.com/{}/{}'.format(user, repo)
       self.pull_req = []
       self.proj = []
-      self.branches = []
+      self.branches = self.getBranches()
       self.contr = []
-      self.branch = reqBranch   
-      self.commits = self.getCommitsAsDict()
+      self.branch = reqBranch
+      self.commits = self.getCommitsAsDict()   
 
    def getCommitsAsDict(self):
       url = '{}/commits/{}'.format(self.url, self.branch)
@@ -36,6 +36,21 @@ class GitHubScraper:
          out_dict[com_id] = {'description' : title, 'author' : author}
       return out_dict
  
+   def getBranches(self):
+       url = '{}/branches'.form(self.url)
+       webpage_content = requests.get(url).content.decode('utf-8')
+       string = BeautifulSoup(webpage_content, 'html.parser')
+       s_ref = [i.get('class') for i in string.findall('span')]
+       s_ref = [i for i in s_ref if('branch-name css-trunc' in i)]
+       s_ref = [i.(split('-target@>')[1]).split('</')[0] for i in s_ref]
+       return s_ref
+
+   def stringBranches(self):
+       out_str = 'Branches in: {}/{}\n\n'.format(self.user, self.repo)
+       for branch in self.branches:
+           out_str += '- {}\n'.format(branch)
+       return out_str
+     
    def stringCommits(self):
         out_str = 'Commits for Branch: {}/{}/{}\n\n'.format(self.user, self.repo, self.branch)
         for key in self.commits:
