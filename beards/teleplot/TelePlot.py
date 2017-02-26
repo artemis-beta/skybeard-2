@@ -12,7 +12,7 @@ class TelePlot:
         self.loglevel = debug
         self.plot_opts = '-'
         self.line_styles = {'—' : '--', 'dashed' : '--', '-.' : '-.',
-                            'dotdash' : '.-', ':' : ':', 'dotted' : ':',
+                            'dashdot' : '.-', ':' : ':', 'dotted' : ':',
                             'none' : ''}
         self.colors = {'blue' : 'b', 'green' : 'g', 'red' : 'r', 'cyan' : 'c',
                             'magenta' : 'm', 'yellow' : 'y', 'black' : 'k',
@@ -53,10 +53,16 @@ class TelePlot:
             if 'title' in opts_tuple[0]:
                 self.title = r'{}'.format(opts_tuple[1])
             if 'marker' in opts_tuple[0]:
+                if not opts_tuple[1] in self.marker_styles:
+                    raise SyntaxError
                 self.plot_opts += self.marker_styles[opts_tuple[1]]
             if 'color' in opts_tuple[0]:
+                if not opts_tuple[1] in self.colors:
+                    raise SyntaxError
                 self.plot_opts += self.colors[opts_tuple[1]]
             if 'linestyle' in opts_tuple[0]:
+                if not opts_tuple[1] in self.line_styles:
+                    raise SyntaxError
                 self.plot_opts = self.plot_opts.replace('-', self.line_styles[opts_tuple[1]])
             if 'options' in opts_tuple[0]:
                 self.plot_opts = opts_tuple[1]
