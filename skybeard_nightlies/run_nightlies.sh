@@ -10,11 +10,12 @@ echo "Running tests on branch 'master'"
 
 python $1/run_nightly.py --branch master --location $1/master --out $1
 
-echo "Making 'skb-dev' directory in $1 and cloning branch"
+echo "Making 'skybeard-2' directory in $1"
 
 cd $1
 
 git clone https://github.com/LanceMaverick/skybeard-2
+cd $1/skybeard-2
 
 git checkout skb-dev
 
@@ -24,16 +25,22 @@ python $1/run_nightly.py --branch skb-dev --location $1/skybeard-2 --out $1
 
 cd $1/skybeard-2
 
-pr_array=($(git pull-request -r LanceMaverick/skybeard-2 | sed -n 3p | grep -E -o '[[:digit:]]+'))
+pr_array=($(git pull-request -r LanceMaverick/skybeard-2 | grep -E 'REQUEST' | awk -F ' ' '{print $2}'))
 
-for i in "$pr_array":
+echo $pr_array
+
+for i in "${pr_array[@]}"
     do
-      git pull-request -r LanceMaverick/skybeard-2 -r $i
-      git checkout pull-request-$i
+      echo "Checking Out Pull Request #$i"
+      git pull-request -r LanceMaverick/skybeard-2 $i
+      git branch
+      echo "Leaving Directory"
       cd -
       python $1/run_nightly.py --branch pull-request-$i --location $1/skybeard-2 --out $1
+      cd $1/skybeard-2
     done
 
+cd -
 rm -rf master
 rm -rf skybeard-2
 
