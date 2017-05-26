@@ -14,7 +14,9 @@ import pyconfig
 from .bearddbtable import BeardDBTable
 from .logging import TelegramHandler
 from .predicates import command_predicate
-from skybeard.server import async_post, async_get, web
+# from skybeard.server import async_post, async_get, web
+from skybeard.server import app
+from aiohttp import web
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,18 @@ class Command(object):
         self.coro = coro
         self.hlp = hlp
 
+    def toJSON(self):
+        try:
+            return {
+                "predicate": self.pred.toJSON(),
+                "help": self.hlp,
+            }
+        except AttributeError:
+            return {
+                "predicate": "(unserializable)",
+                "help": self.hlp,
+            }
+
 
 class SlashCommand(object):
     """Holds information to determine whether a telegram command was sent."""
@@ -37,6 +51,12 @@ class SlashCommand(object):
         self.pred = command_predicate(cmd)
         self.coro = coro
         self.hlp = hlp
+
+    def toJSON(self):
+        return {
+            "command": "/"+self.cmd,
+            "help": self.hlp
+        }
 
 def create_command(cmd_or_pred, coro, hlp=None):
     """Creates a Command or SlashCommand object as appropriate.
@@ -48,18 +68,18 @@ def create_command(cmd_or_pred, coro, hlp=None):
         return Command(cmd_or_pred, coro, hlp)
     raise TypeError("cmd_or_pred must be str or callable.")
 
-def create_route(route, coro, method):
-    """creates an endpoint for the web server"""
-    if method.lower() == 'post':
-        @async_post(route)
-        def handler(request):
-            return coro(request)
-    elif method.lower() == 'get':
-        @async_get(route)
-        def handler(request):
-            return coro(request)
-    else:
-        raise ValueError('HTTP method "{}" not supported'.format(method))
+# def create_route(route, coro, method):
+#     """creates an endpoint for the web server"""
+#     if method.lower() == 'post':
+#         @async_post(route)
+#         def handler(request):
+#             return coro(request)
+#     elif method.lower() == 'get':
+#         @async_get(route)
+#         def handler(request):
+#             return coro(request)
+#     else:
+#         raise ValueError('HTTP method "{}" not supported'.format(method))
 
 
 class Beard(type):
@@ -77,14 +97,18 @@ class Beard(type):
                 tmp = dct["__commands__"].pop(0)
                 dct["__commands__"].append(create_command(*tmp))
 
-        b = type.__new__(mcs, name, bases, dct)
         if "__routes__" in dct:
             for r in dct["__routes__"]:
-                tmp = list(r)
-                tmp[1] = getattr(b, r[1])
-                create_route(*tmp)
+                endpoint = r[1]
+                if isinstance(r[2], str):
+                    methods = (r[2],)
+                else:
+                    methods = r[2]
+                fn_to_route = getattr(mcs, r[1])
 
-        return b
+                app.add_route(fn_to_route, endpoint=endpoint, methods=methods)
+
+        return type.__new__(mcs, name, bases, dct)
 
     def __init__(cls, name, bases, attrs):
         # If specified as base beard, do not add to list
@@ -162,6 +186,16 @@ class BeardChatHandler(telepot.aio.helper.ChatHandler, metaclass=Beard):
 
         return type(self)._username
 
+    @classmethod
+    def toJSON(cls):
+        # Not a coroutine because it's useful to use this in list
+        # comprehensions
+        return {
+            "name": cls.__name__,
+            "commands": [c.toJSON() for c in cls.__commands__],
+            "userhelp": cls.__userhelp__
+        }
+
     def __init__(self, *args, **kwargs):
         self._instance_commands = []
         super().__init__(*args, **kwargs)
@@ -185,7 +219,7 @@ class BeardChatHandler(telepot.aio.helper.ChatHandler, metaclass=Beard):
         super().on_close(e)
 
     async def __onerror__(self, e):
-        """Runs when functions decorated with @onerror except.
+        """Runs when functions decorated with @onerror() except.
 
         Useful for emitting debug crash logs. Can be overridden to use custom
         error tracking (e.g. telegramming the author of the beard when a crash
@@ -280,20 +314,21 @@ class BeardChatHandler(telepot.aio.helper.ChatHandler, metaclass=Beard):
                 else:
                     await getattr(self, cmd.coro)(msg)
 
-@async_get('/loadedBeards')
-async def loaded_beards(request):
-    return web.json_response([str(x) for x in Beard.beards])
 
-@async_get('/availableCommands')
+@app.add_route('/loadedBeards', methods=['GET'])
+async def loaded_beards(request):
+    return web.json_response([b.toJSON() for b in Beard.beards])
+
+
+@app.add_route('/availableCommands', methods=['GET'])
 async def available_commands(request):
     d = {}
     for beard in Beard.beards:
         cmds = []
         for cmd in beard.__commands__:
             if isinstance(cmd, SlashCommand):
-                cmds.append(dict(command = cmd.cmd, hint = cmd.hlp))
+                cmds.append(dict(command=cmd.cmd, hint=cmd.hlp))
         if cmds:
             d[beard.__name__] = cmds
 
     return web.json_response(d)
-    

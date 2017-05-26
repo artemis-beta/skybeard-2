@@ -1,63 +1,32 @@
 #!/usr/bin/env python
 import os
+import aiohttp
 import asyncio
 import logging
-import itertools
+# import itertools
 import importlib
+# from importlib.util import find_spec
 import argparse
 import pyconfig
+from pathlib import Path
 
+import yaml
 import telepot
 from telepot.aio.delegate import (per_chat_id,
                                   create_open,
                                   pave_event_space,
                                   include_callback_query_chat_id)
-import skybeard.api
 from skybeard.beards import Beard, BeardChatHandler, SlashCommand
 from skybeard.help import create_help
-from skybeard.utils import (is_module,
-                            contains_setup_beard_py,
-                            get_literal_path,
-                            get_literal_beard_paths,
+from skybeard.utils import (get_literal_path,
                             all_possible_beards,
                             PythonPathContext)
-import config
+
+# import config
 
 
 class DuplicateCommand(Exception):
     pass
-
-
-# def is_module(filename):
-#     fname, ext = os.path.splitext(filename)
-#     if ext == ".py":
-#         return True
-#     elif os.path.exists(os.path.join(filename, "__init__.py")):
-#         return True
-#     else:
-#         return False
-
-
-# def get_literal_path(path_or_autoloader):
-#     try:
-#         return path_or_autoloader.path
-#     except AttributeError:
-#         assert type(path_or_autoloader) is str,\
-#             "beard_path is not a str or an AutoLoader!"
-#         return path_or_autoloader
-
-
-# def get_literal_beard_paths(beard_paths):
-#     return [get_literal_path(x) for x in beard_paths]
-
-
-# def all_possible_beards(paths):
-#     literal_paths = get_literal_beard_paths(paths)
-
-#     for path in literal_paths:
-#         for f in os.listdir(path):
-#             if is_module(os.path.join(path, f)):
-#                 yield os.path.basename(f)
 
 
 def delegator_beard_gen(beards):
@@ -70,33 +39,91 @@ def delegator_beard_gen(beards):
                 per_chat_id(), create_open, beard, timeout=beard._timeout)
 
 
-def main(config):
+def find_last_child(path):
+    return Path(str(path).replace(str(path.parent)+"/", ""))
 
-    # if pyconfig.get('start_server'):
-    #     from skybeard import server
 
-    if config.beards == "all":
-        beards_to_load = all_possible_beards(config.beard_paths)
-    else:
-        beards_to_load = config.beards
+def load_stache(stache_name, possible_dirs):
+    for dir_ in possible_dirs:
+        path = Path(dir_).resolve()
+        python_path = path.parent
+        with PythonPathContext(str(python_path)):
+            module_spec = importlib.util.find_spec(
+                "{}.{}".format(str(find_last_child(path)), stache_name))
 
-    # Not sure importing is for the best
-    for beard_path, possible_beard in itertools.product(
-            config.beard_paths, beards_to_load):
+            if module_spec:
+                foo = importlib.util.module_from_spec(module_spec)
+                module_spec.loader.exec_module(foo)
 
-        with PythonPathContext(get_literal_path(beard_path)):
+                return
+
+    raise Exception("No stache with name {} found".format(stache_name))
+
+
+def load_beard(beard_name, possible_dirs):
+    for beard_path in possible_dirs:
+        full_python_path = Path(get_literal_path(beard_path)).resolve()
+        full_setup_beard_path = str(
+            full_python_path / beard_name / "setup_beard.py")
+        module_name = beard_name+".setup_beard"
+
+        logger.debug("Attempting to import {} in file {}".format(
+            module_name, full_python_path))
+
+        with PythonPathContext(str(full_python_path)):
             try:
-                importlib.import_module(possible_beard+".setup_beard")
-            except ImportError as ex:
-                # If the module named by possible_beard does not exist, pass.
-                #
-                # If the module named by possible_beard does exist, but
-                # .setup_beard does not exist, the module is imported anyway.
+                module_spec = importlib.util.find_spec(
+                    module_name,
+                    full_setup_beard_path)
+            except ImportError:
+                # module_name is some_beard.setup_beard which means find_spec
+                # automatically imports some_beard when it tries to find the
+                # spec. If this fails, then just set module_spec to None (so it
+                # is as if find_spec has found nothing).
+                module_spec = None
+
+        logger.debug("Got spec: {}".format(module_spec))
+
+        if module_spec:
+            # if find_spec finds a module, subsequent calls with the same
+            # module name finds the already found module.
+            logger.debug("Breaking loop")
+            break
+    else:
+        # Try the old way
+        logger.warning("Attempting to import {} as an old style beard. Old beards will eventually be deprecated.".format(beard_name))
+        for beard_path in possible_dirs:
+            try:
+                with PythonPathContext(str(beard_path)):
+                    module = importlib.import_module(beard_name)
+            except ImportError:
                 pass
-                # if importlib.import_module(possible_beard):
-                #     pass
-                # else:
-                #     raise ex
+
+        # TODO make this a much better exception
+        if module:
+            return
+        else:
+            raise Exception("No beard found! Looked in: {}. Trying to find: {}".format(possible_dirs, beard_name))
+
+    foo = importlib.util.module_from_spec(module_spec)
+    with PythonPathContext(str(Path(module_spec.origin).parent.parent)):
+        module_spec.loader.exec_module(foo)
+
+
+def main():
+    if pyconfig.get('beards') == "all":
+        beards_to_load = all_possible_beards(pyconfig.get('beard_paths'))
+    else:
+        beards_to_load = pyconfig.get('beards')
+
+    for stache in pyconfig.get('staches'):
+        load_stache(stache, pyconfig.get('stache_paths'))
+
+    for possible_beard in beards_to_load:
+        # If possible, import the beard through setup_beard.py
+        load_beard(possible_beard, pyconfig.get('beard_paths'))
+
+        # TODO support old style beards?
 
         assert pyconfig.get('loglevel') == logger.getEffectiveLevel(), \
             "{} has caused the loglevel to be changed from {} to {}!".format(
@@ -128,20 +155,43 @@ def main(config):
                             "The command /{} occurs in more than "
                             "one beard.".format(cmd.cmd))
                     all_cmds.add(cmd)
-    
+
     bot = telepot.aio.DelegatorBot(
         pyconfig.get('key'),
         list(delegator_beard_gen(Beard.beards))
     )
 
     loop = asyncio.get_event_loop()
-    loop.create_task(bot.message_loop())
+
+    async def bot_message_loop_and_aiothttp_session():
+        async with aiohttp.ClientSession() as session:
+            pyconfig.set('aiohttp_session', session)
+            await bot.message_loop()
+
+    # loop.create_task(bot.message_loop())
+    loop.create_task(bot_message_loop_and_aiothttp_session())
 
     if pyconfig.get('start_server'):
         from skybeard.server import app
+        # From https://github.com/aio-libs/aiohttp-cors
+        #
+        # Must be done after the beards are loaded.
+        import aiohttp_cors
+        # Configure default CORS settings.
+        cors = aiohttp_cors.setup(app, defaults={
+            "*": aiohttp_cors.ResourceOptions(
+                    allow_credentials=True,
+                    expose_headers="*",
+                    allow_headers="*",
+                )
+        })
+
+        # Configure CORS on all routes.
+        for route in list(app.router.routes()):
+            cors.add(route)
 
         handler = app.make_handler()
-        f = loop.create_server(handler, config.host, config.port)
+        f = loop.create_server(handler, pyconfig.get('host'), pyconfig.get('port'))
         srv = loop.run_until_complete(f)
         print('serving on', srv.sockets[0].getsockname())
 
@@ -169,6 +219,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Skybeard hails you!')
 
     parser.add_argument('-k', '--key', default=os.environ.get('TG_BOT_TOKEN'))
+    parser.add_argument('-c', '--config-file', default=os.path.abspath("config.yml"))
     parser.add_argument('--no-help', action='store_true')
     parser.add_argument('-d', '--debug', action='store_const', dest="loglevel",
                         const=logging.DEBUG, default=logging.INFO)
@@ -181,11 +232,24 @@ if __name__ == '__main__':
 
     parsed = parser.parse_args()
 
+    pyconfig.set('config_file', os.path.abspath(parsed.config_file))
+
+    # Load the config file and put it into pyconfig
+    with open(pyconfig.get('config_file')) as config_file:
+        for k, v in yaml.load(config_file).items():
+            pyconfig.set(k, v)
+
+    beard_paths = pyconfig.get('beard_paths')
+    pyconfig.set('beard_paths', [os.path.expanduser(x) for x in beard_paths])
+    stache_paths = pyconfig.get('stache_paths')
+    pyconfig.set('stache_paths', [os.path.expanduser(x) for x in stache_paths])
+
+
     pyconfig.set('loglevel', parsed.loglevel)
     pyconfig.set('start_server', parsed.start_server)
     pyconfig.set('no_auto_pip', parsed.no_auto_pip)
     pyconfig.set('auto_pip_upgrade', parsed.auto_pip_upgrade)
-    pyconfig.set('admins', [a[1] for a in config.admins])
+    pyconfig.set('admins', [a[1] for a in pyconfig.get('admins')])
     print(pyconfig.get('admins'))
 
     logging.basicConfig(
@@ -197,21 +261,21 @@ if __name__ == '__main__':
     # Set up the master beard
     # TODO consider making this not a parrt of the BeardChatHandler class now
     # that we use pyconfig.
-    BeardChatHandler.setup_beards(parsed.key, config.db_url)
-    pyconfig.set('db_url', config.db_url)
-    pyconfig.set('db_bin_path', config.db_bin_path)
+    BeardChatHandler.setup_beards(parsed.key, pyconfig.get('db_url'))
+    # pyconfig.set('db_url', config.db_url)
+    # pyconfig.set('db_bin_path', config.db_bin_path)
     if not os.path.exists(pyconfig.get('db_bin_path')):
         os.mkdir(pyconfig.get('db_bin_path'))
 
     # If the user does not specially request --no-help, set up help command.
     if not parsed.no_help:
-        create_help(config)
+        create_help()
 
-    logger.debug("Config found to be: {}".format(dir(config)))
+    # logger.debug("Config found to be: {}".format(dir(config)))
 
     # TODO make an argparse here to override the config file (and also specify
     # the config file)
-    main(config)
+    main()
 
 # bot = telepot.aio.DelegatorBot(TOKEN, [
 #     include_callback_query_chat_id(

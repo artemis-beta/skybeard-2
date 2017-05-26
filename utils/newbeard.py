@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 
 import argparse
-
 from pathlib import Path
+from shutil import copytree
+
+from utils import make_init_text
 
 
 def make_readme(dir_, name):
@@ -14,25 +16,8 @@ def make_readme(dir_, name):
 def make_init(dir_, name):
     python_path = dir_ / Path("python/{}".format(name))
     python_path.mkdir(parents=True)
-    init_text = '''
-from skybeard.beards import BeardChatHandler
 
-
-class Echo(BeardChatHandler):
-
-    __userhelp__ = """A simple echo beard. Echos whatever it is sent."""
-
-    __commands__ = [
-        # command, callback coro, help text
-        ("echo", 'echo', 'Echos command and args')
-    ]
-
-    # __init__ is implicit
-
-    async def echo(self, msg):
-        await self.sender.sendMessage(msg['text'])
-
-    '''.strip()
+    init_text = make_init_text(name)
 
     with (python_path / Path("__init__.py")).open("w") as f:
         f.write(init_text)
@@ -52,6 +37,11 @@ setup_beard(
         f.write(setup_beard_text)
 
 
+def copy_existing_old_style_beard(dir_, directory):
+    pythonpath = str(dir_ / "python/")
+    copytree(directory, pythonpath)
+
+
 def make_requirements(dir_, requirements):
     requirements_text = "\n".join(requirements)
 
@@ -69,6 +59,10 @@ def main():
     parser.add_argument(
         '-r', '--requirements', default=None,
         help="Create requirements file with optional requirements.", nargs="*")
+    parser.add_argument('-u', '--upgrade',
+                        help="Upgrades an existing beard to a new style beard.",
+                        type=str,
+                        default=None)
 
     parsed = parser.parse_args()
 
@@ -81,10 +75,13 @@ def main():
         pass
 
     make_readme(parsed.dir, parsed.name)
-    make_init(parsed.dir, parsed.name)
+    if parsed.upgrade is None:
+        make_init(parsed.dir, parsed.name)
+    else:
+        copy_existing_old_style_beard(parsed.dir, parsed.upgrade)
     make_setup_beard(parsed.dir, parsed.name)
     if parsed.requirements is not None:
-        make_requirements(parsed.dir, parsed.requirements)
+        make_requirements(parsed.dir, parsed.requirements, parsed.upgrade)
 
 
 if __name__ == '__main__':
