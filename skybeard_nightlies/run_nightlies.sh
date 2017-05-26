@@ -1,3 +1,21 @@
+if [ "$#" -ne 1 ]
+then
+    SKNLOC=$2
+    if [ ! -d "$SKNLOC" ]
+    then
+        echo "ERROR: Directory '$2' does not exist!"
+        exit 1
+    fi
+else
+    SKNLOC=$PWD
+fi
+
+if [ ! -d "$1" ]
+then
+    echo "ERROR: Director '$1' does not exist!"
+    exit 1
+fi
+
 echo "Making 'master' directory in $1 and cloning branch"
 
 cd $1
@@ -8,7 +26,7 @@ cd -
 
 echo "Running tests on branch 'master'"
 
-python $1/run_nightly.py --branch master --location $1/master --out $1
+python $SKNLOC/run_nightly.py --branch master --location $1/master --out $1
 
 echo "Making 'skybeard-2' directory in $1"
 
@@ -21,7 +39,7 @@ git checkout skb-dev
 
 cd -
 
-python $1/run_nightly.py --branch skb-dev --location $1/skybeard-2 --out $1
+python $SKNLOC/run_nightly.py --branch skb-dev --location $1/skybeard-2 --out $1
 
 cd $1/skybeard-2
 
@@ -36,13 +54,13 @@ for i in "${pr_array[@]}"
       git branch
       echo "Leaving Directory"
       cd -
-      python $1/run_nightly.py --branch pull-request-$i --location $1/skybeard-2 --out $1
+      python $SKNLOC/run_nightly.py --branch pull-request-$i --location $1/skybeard-2 --out $1
       cd $1/skybeard-2
     done
 
 cd -
-rm -rf master
-rm -rf skybeard-2
+rm -rf $1/master
+rm -rf $1/skybeard-2
 
 echo "# Skybeard Nightly Tests" > header.md
 DATE=`date +%Y-%m-%d`
